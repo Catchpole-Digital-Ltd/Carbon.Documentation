@@ -1,11 +1,20 @@
 ---
-title: Map Implementation
+title: Map System
 description: In-depth technical documentation of the Control Panel's interactive map system, including entity tracking, coordinate transformations, and real-time rendering.
 ---
 
-# Map Implementation
+# Map System
 
-The Control Panel includes an interactive map system that displays the server's procedurally generated terrain with real-time entity tracking. This document provides an in-depth look at how the map is implemented.
+The Control Panel includes an interactive map system that displays the server's procedurally generated terrain with real-time entity tracking. This document provides an in-depth look at how the map works.
+
+## Features
+
+- **Live Map Image**: Displays the server's procedurally generated terrain
+- **Real-Time Player Tracking**: Shows online and sleeping player positions
+- **Monument Markers**: Displays named locations on the map
+- **Dynamic Night Mode**: Adjusts brightness based on server time
+- **Interactive Controls**: Pan, zoom, and fullscreen support
+- **Entity Filtering**: Toggle which entity types to display
 
 ## Architecture Overview
 
@@ -17,6 +26,83 @@ The map system spans multiple files:
 | `ServerMapImage.vue` | Core map rendering component |
 | `ControlPanel.SaveLoad.ts` | Server class, RPCs, entity tracking |
 | `ControlPanel.Tabs.Information.vue` | Embedded map display |
+
+## User Interface
+
+### Control Bar
+
+The map includes a control bar in the top-right corner:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  12:45  │  −  │  100%  │  +  │ Reset │ ⛶ │ Map Markers │ 🌙 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Control | Function |
+|---------|----------|
+| Time Display | Shows current server time (HH:MM format) |
+| − | Zoom out by 10% |
+| Percentage | Current zoom level |
+| + | Zoom in by 10% |
+| Reset | Reset to default zoom and position |
+| ⛶ | Open fullscreen map popup |
+| Map Markers | Toggle monument labels |
+| 🌙 | Toggle night mode brightness |
+
+### Server Time Display
+
+The server time is formatted from the `hour` float value:
+
+```typescript
+// hour = 12.75 (12:45 PM)
+const hours = Math.floor(hour).toString().padStart(2, '0')      // "12"
+const minutes = Math.floor((hour % 1) * 60).toString().padStart(2, '0')  // "45"
+// Display: "12:45"
+```
+
+### Tracked Items Panel
+
+The bottom-left panel allows filtering which entities appear on the map:
+
+```
+┌─────────────────────────────────────────┐
+│ ● Tracked Items (2)                   ▾ │
+├─────────────────────────────────────────┤
+│ ┌─────────────────┐ ┌─────────────────┐ │
+│ │ Online Players  │ │ Offline Players │ │
+│ │     (45)        │ │     (120)       │ │
+│ └─────────────────┘ └─────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+- **Collapsible**: Click header to expand/collapse
+- **Entity Counts**: Shows count of each type currently on map
+- **Toggle Chips**: Click to enable/disable tracking for each type
+- **Visual State**: Active types highlighted in green, inactive are dimmed
+
+### Fullscreen Mode
+
+Clicking the expand button (⛶) opens the map in a popup:
+
+```typescript
+async function expand() {
+  isDetached.value = true  // Hide embedded map
+
+  addPopup(ControlPanel.Popup.Map, {
+    src: mapImageUrl,
+    live: true,
+    title: 'Live Map',
+    subtitle: serverHostname,
+    isFullscreen: true,
+    onClosed: () => {
+      isDetached.value = false  // Restore embedded map
+    }
+  })
+}
+```
+
+The embedded map is hidden while the popup is open to avoid duplicate rendering.
 
 ## Map Data Loading
 
@@ -360,6 +446,21 @@ Applied via CSS filter:
 
 ## Entity Rendering
 
+### Player Markers
+
+Players are rendered as small colored dots on the map:
+
+```
+Online Player:        Sleeping Player:
+    ┌───┐                 ┌───┐
+    │ ● │ Green           │ ● │ Red (semi-transparent)
+    └───┘                 └───┘
+      │                     │
+  ┌───────┐             ┌───────┐
+  │ Name  │             │ Name  │  ← Hover label
+  └───────┘             └───────┘
+```
+
 ### Visual Indicators
 
 Entities are rendered as colored dots with CSS:
@@ -376,10 +477,18 @@ Entities are rendered as colored dots with CSS:
 }
 ```
 
-| Entity Type | Color | Opacity |
-|-------------|-------|---------|
-| Online Players | Green (#74cc00) | 100% |
-| Sleeping Players | Red (#dd2424) | ~48% |
+| Entity Type | Color | Size | Opacity | Description |
+|-------------|-------|------|---------|-------------|
+| Online Players | Green (#74cc00) | 6px | 100% | Currently connected |
+| Sleeping Players | Red (#dd2424) | 6px | ~48% | Logged out but body remains |
+
+### Marker Styling
+
+Each marker includes:
+- **Fill Color**: Entity type indicator
+- **Ring**: 1px black border at 50% opacity
+- **Shadow**: Drop shadow for depth
+- **Shape**: Circular (rounded-full)
 
 ### Label Display
 
@@ -402,21 +511,43 @@ Labels appear on hover:
 
 ### Monument Markers
 
-Monuments are rendered with HTML labels:
+Monuments are named locations on the map (Launch Site, Dome, Airfield, etc.).
 
-```vue
-<div v-for="(monument, idx) in selectedServer?.MapInfo?.monuments"
-     :style="{
-       transform: `translate(
-         ${(mapImage?.clientWidth ?? 0) * monument.x}px,
-         ${(mapImage?.clientHeight ?? 0) * (1 - monument.y)}px
-       )`
-     }">
-  <span v-html="monument.label"></span>
-</div>
+**Visibility Control:**
+```typescript
+function toggleShowMarkers() {
+  selectedServer.MapSettings.showMarkers = !selectedServer.MapSettings.showMarkers
+  save()  // Persist to localStorage
+}
 ```
 
-Monument labels support HTML formatting for rich text display.
+**Rendering:**
+```
+┌─────────────────────────────────────────────┐
+│           ┌───────────────┐                 │
+│           │ Launch Site   │  ← Label        │
+│           └───────────────┘                 │
+│                  •  ← Monument position     │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+**Label Styling:**
+- Background: Semi-transparent black (70% opacity)
+- Border: White with 10% opacity
+- Font: 7px, no text wrapping
+- Position: Centered on monument coordinates
+
+**Monument Data Structure:**
+```typescript
+interface Monument {
+  label: string   // HTML-formatted name (e.g., "Launch Site")
+  x: number       // Normalized X position (0.0 - 1.0)
+  y: number       // Normalized Y position (0.0 - 1.0)
+}
+```
+
+Monument labels support HTML formatting, allowing rich text display with colors and icons if sent by the server.
 
 ## Pan and Zoom
 
@@ -667,3 +798,101 @@ clear() {
   this.MapInfo = null
 }
 ```
+
+## User Interaction Flow
+
+### Initial Load
+
+```
+1. User selects server
+           │
+           ▼
+2. Server connects
+           │
+           ▼
+3. LoadMapInfo RPC sent
+           │
+           ▼
+4. Server returns PNG + monuments
+           │
+           ▼
+5. Map image displayed
+           │
+           ▼
+6. startMapEntityTracking() called
+           │
+           ▼
+7. Entity polling begins (1s interval)
+```
+
+### Viewing Player Positions
+
+```
+1. Enable "Online Players" in Tracked Items
+           │
+           ▼
+2. RequestMapEntities includes type 0
+           │
+           ▼
+3. Server returns player positions
+           │
+           ▼
+4. Green dots appear on map
+           │
+           ▼
+5. Hover over dot to see player name
+```
+
+### Zooming to a Location
+
+```
+Method 1: Mouse Wheel
+  - Scroll up to zoom in
+  - Scroll down to zoom out
+  - Zoom centers on cursor position
+
+Method 2: Buttons
+  - Click + to zoom in 10%
+  - Click - to zoom out 10%
+  - Zoom centers on map center
+
+Method 3: Pinch (Touch)
+  - Two-finger pinch to zoom
+  - Zoom centers on pinch midpoint
+
+Method 4: Double-Click
+  - Double-click to reset view
+```
+
+### Panning the Map
+
+```
+Mouse/Touch:
+  1. Press and hold on map
+  2. Drag to pan
+  3. Release to stop
+
+The map follows the pointer with 1:1 movement ratio.
+```
+
+## Settings Persistence
+
+Map settings are saved to localStorage:
+
+```typescript
+MapSettings: {
+  trackedTypes: number[]    // Which entity types to track
+  showMarkers: boolean      // Monument visibility
+  nightMode: boolean        // Brightness adjustment
+}
+```
+
+Settings persist across page reloads and sessions.
+
+## Limitations
+
+- **Entity Types**: Currently limited to Online/Sleeping players
+- **Update Rate**: Fixed 1-second polling interval
+- **Memory**: Entity array cleared every 20 seconds (stale cleanup)
+- **No Clustering**: High player counts may overlap markers
+- **No Search**: Cannot search for specific players on map
