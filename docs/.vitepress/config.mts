@@ -28,7 +28,14 @@ const references = [
 ]
 
 const tools = [
-  { text: 'Control Panel (RCon)', link: '/tools/control-panel/' },
+  {
+    text: 'Control Panel (RCon)',
+    collapsed: true,
+    items: [
+      { text: 'Control Panel', link: '/tools/control-panel/' },
+      { text: 'RCon Players', link: '/tools/control-panel/rcon-players' },
+    ],
+  },
   { text: 'Profiler Panel', link: '/tools/profiler-panel/' },
   { text: 'Server Browser', link: '/tools/server-browser/' },
   { text: 'Changelog Generator', link: '/tools/changelog-generator/' }
